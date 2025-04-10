@@ -6,6 +6,7 @@ from sklearn.pipeline import make_pipeline
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import GridSearchCV 
 import xgboost as xgb
+from urllib.parse import unquote
 
 
 # Mostrar todas las columnas y filas en pantalla
@@ -16,6 +17,45 @@ pd.set_option('display.width', None)
 # Cargar datos 
 data = pd.read_csv("competition_data.csv")
 
+# PROCESAMIENTO DE DATOS 
+# Eliminar columnas innecesarias --> ¿tambien hay que borrar id (unnamed:0)?
+data.drop(columns=['spotify_track_uri', 'username'], inplace=True)
+
+
+# Quiero ver el TIPO DE DISPOSITIVO desde el que se inicio sesion --> se encuentran en platform
+# decodificamos los caracteres especiales para 'platform'
+data['user_agent_decrypted'] = data['platform'].apply(lambda x: unquote(x) if pd.notnull(x) else x) 
+# paso a minusculas
+data['user_agent_decrypted'] = data['platform'].str.lower()
+
+def clasificar_plataforma(plat:str) -> str:
+    """
+    clasifica el dispositivo (celular, pc, etc) a partir del atributo plataforma, pasado por parametro
+    veo si dentro de plat existe un str tipo 'ios', 'iphone', etc
+    esta funcion va a generar 5 posibles categorias (output) para la columna 'tipo_dispositivo'
+    """
+
+    if pd.isnull(plat):
+        return 'unknown'    #1
+    if any(x in plat for x in ['android', 'ios', 'iphone', 'ipad', 'mobile', 'phone']):
+        return 'movil'      #2
+    elif any(x in plat for x in ['windows', 'mac', 'web', 'desktop']):
+        return 'pc'         #3
+    elif any(x in plat for x in ['tv', 'xbox', 'ps', 'console']):
+        return 'tv/consola' #4
+    else:
+        return 'otro'       #5
+
+data['tipo_dispositivo'] = data['platform'].apply(clasificar_plataforma)
+# Eliminar columnas innecesarias
+data.drop(columns=['platform',
+                    'user_agent_decrypted',  
+                    'master_metadata_track_name', 
+                    'master_metadata_album_artist_name',
+                    'master_metadata_album_album_name',
+                    'ts'], inplace=True)
+
+
 # TRAIN SET
 train_data = data.sample(frac=0.8, random_state=42)
 ## Usar solo una fracción del dataset para entrenamiento rápido
@@ -23,8 +63,9 @@ train_data = train_data.sample(frac=6/10)
 # Separar variable objetivo y features
 y_train = train_data["TARGET"]
 x_train = train_data.drop(columns=["TARGET"])
-# Usar solo las columnas numéricas (incluyendo 'id')
-x_train = x_train.select_dtypes(include='number')
+# Usar solo las columnas numéricas (incluyendo 'id') y booleanas
+
+x_train = x_train.select_dtypes(include=['number', 'bool'])
 
 # VAL SET
 val_data = data.drop(train_data.index)
@@ -32,7 +73,7 @@ val_data = data.drop(train_data.index)
 y_val = val_data["TARGET"]
 x_val = val_data.drop(columns=["TARGET"])
 # Usar solo las columnas numéricas (incluyendo 'id')
-x_val = x_val.select_dtypes(include='number')
+x_val = x_val.select_dtypes(include=['number', 'bool'])
 
 # Cargar datos de evaluación
 eval_data = pd.read_csv("submission.csv")
